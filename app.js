@@ -89,6 +89,19 @@ function shapePath(settings, inset = 0) {
   return roundedRectPath(settings, inset);
 }
 
+function guidePath(settings, inset = 0) {
+  if (settings.type === 'tShape' || settings.type === 'gusset') {
+    return pointsToClosedPath(approximatePathPoints(settings, inset));
+  }
+  return shapePath(settings, inset);
+}
+
+function pointsToClosedPath(points) {
+  if (!points.length) return '';
+  const [first, ...rest] = points;
+  return [`M ${first.x} ${first.y}`, ...rest.map((point) => `L ${point.x} ${point.y}`), 'Z'].join(' ');
+}
+
 function roundedRectPath(settings, inset) {
   const w = Math.max(settings.width - inset * 2, 1);
   const h = Math.max(settings.height - inset * 2, 1);
@@ -263,7 +276,7 @@ function dimensions(settings) {
 
 function renderPart(settings, offsetX = 0, offsetY = 0, label = '') {
   const pathData = shapePath(settings, 0);
-  const seamPath = shapePath(settings, settings.seam);
+  const seamPath = guidePath(settings, settings.seam);
   const holes = settings.showHoles ? sampleHoles(settings) : [];
   const labelSvg = label ? `<text x="0" y="-2.5" font-size="3.2" fill="#74675a">${escapeXml(label)}</text>` : '';
 
