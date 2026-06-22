@@ -1,20 +1,31 @@
 const NS = 'http://www.w3.org/2000/svg';
+const A4 = { width: 210, height: 297, margin: 8, gap: 6 };
 const controls = [...document.querySelectorAll('input, select')];
 const preview = document.getElementById('preview');
-const partType = document.getElementById('partType');
 const basicFields = document.getElementById('basicFields');
 const tFields = document.getElementById('tFields');
 const gussetFields = document.getElementById('gussetFields');
 const shapeSummary = document.getElementById('shapeSummary');
 const holeSummary = document.getElementById('holeSummary');
+const sheetSummary = document.getElementById('sheetSummary');
+const partList = document.getElementById('partList');
 const downloadSvg = document.getElementById('downloadSvg');
+const addPartButton = document.getElementById('addPart');
+const clearSheetButton = document.getElementById('clearSheet');
+const singleModeButton = document.getElementById('singleMode');
+const sheetModeButton = document.getElementById('sheetMode');
 
 let currentSvg = '';
+let sheetSvg = '';
+let previewMode = 'single';
+let sheetParts = [];
 
 const value = (id) => Number(document.getElementById(id).value) || 0;
 const selectValue = (id) => document.getElementById(id).value;
 const checked = (id) => document.getElementById(id).checked;
 const clamp = (number, min, max) => Math.min(Math.max(number, min), max);
+const clone = (object) => JSON.parse(JSON.stringify(object));
+const createId = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()));
 
 function readSettings() {
   const type = selectValue('partType');
@@ -52,6 +63,14 @@ function readSettings() {
     radius: type === 'rounded' ? value('radius') : 0,
     radiusMode: selectValue('radiusMode'),
   };
+}
+
+function partName(settings) {
+  if (settings.type === 'rect') return '長方形';
+  if (settings.type === 'rounded') return 'R付き長方形';
+  if (settings.type === 'tShape') return 'T字パーツ';
+  if (settings.gussetType === 'fan') return '扇形マチ';
+  return '直線マチ';
 }
 
 function shapePath(settings, inset = 0) {
@@ -214,6 +233,123 @@ function dimensions(settings) {
   return { width: settings.width, height: settings.height };
 }
 
+function renderPart(settings, offsetX = 0, offsetY = 0, label = '') {
+  const pathData = shapePath(settings, 0);
+  const seamPath = shapePath(settings, settings.seam);
+  const holes = settings.showHoles ? sampleHoles(settings) : [];
+  const labelSvg = label ? `<text x="0" y="-2.5" font-size="3.2" fill="#74675a">${escapeXml(label)}</text>` : '';
+
+  return `<g transform="translate(${offsetX} ${offsetY})">
+    ${labelSvg}
+    <path d="${pathData}" fill="none" stroke="#2b2118" stroke-width="0.4" vector-effect="non-scaling-stroke"/>
+    ${settings.showSeam ? `<path d="${seamPath}" fill="none" stroke="#8a4f2a" stroke-width="0.25" stroke-dasharray="2 1.5" vector-effect="non-scaling-stroke"/>` : ''}
+    ${holes.map((p) => `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="0.8" fill="#8a4f2a"/>`).join('\n    ')}
+  </g>`;
+}
+
+function buildSingleSvg(settings) {
+  const size = dimensions(settings);
+  const margin = 18;
+  const svgWidth = size.width + margin * 2;
+  const svgHeight = size.height + margin * 2;
+
+  return `<svg xmlns="${NS}" width="${svgWidth}mm" height="${svgHeight}mm" viewBox="${-margin} ${-margin} ${svgWidth} ${svgHeight}">
+  <rect x="${-margin}" y="${-margin}" width="${svgWidth}" height="${svgHeight}" fill="#fffdf8"/>
+  ${renderPart(settings)}
+</svg>`;
+}
+
+function layoutSheetParts(parts) {
+  const printableWidth = A4.width - A4.margin * 2;
+  const printableHeight = A4.height - A4.margin * 2;
+  let x = A4.margin;
+  let y = A4.margin + 6;
+  let rowHeight = 0;
+
+  return parts.map((part) => {
+    const size = dimensions(part.settings);
+    const tooWide = size.width > printableWidth;
+    const tooTall = size.height > printableHeight;
+    if (x + size.width > A4.width - A4.margin && x > A4.margin) {
+      x = A4.margin;
+      y += rowHeight + A4.gap;
+      rowHeight = 0;
+    }
+    const placement = {
+      ...part,
+      x,
+      y,
+      width: size.width,
+      height: size.height,
+      overflow: tooWide || tooTall || y + size.height > A4.height - A4.margin,
+    };
+    x += size.width + A4.gap;
+    rowHeight = Math.max(rowHeight, size.height);
+    return placement;
+  });
+}
+
+function buildSheetSvg() {
+  const placements = layoutSheetParts(sheetParts);
+  const overflow = placements.some((part) => part.overflow);
+  const partsSvg = placements.map((part, index) => renderPart(part.settings, part.x, part.y, `${index + 1}. ${part.name}`)).join('\n  ');
+  const warning = overflow ? '<text x="8" y="292" font-size="4" fill="#b7352d">A4範囲外のパーツがあります</text>' : '';
+
+  return {
+    svg: `<svg xmlns="${NS}" width="210mm" height="297mm" viewBox="0 0 210 297">
+  <rect x="0" y="0" width="210" height="297" fill="#fffdf8"/>
+  <rect x="${A4.margin}" y="${A4.margin}" width="${A4.width - A4.margin * 2}" height="${A4.height - A4.margin * 2}" fill="none" stroke="#d8c9b6" stroke-width="0.3" stroke-dasharray="2 2"/>
+  <text x="8" y="6" font-size="4" fill="#74675a">A4 / 210mm x 297mm</text>
+  ${partsSvg || '<text x="105" y="148" text-anchor="middle" font-size="5" fill="#74675a">A4に追加したパーツがここに表示されます</text>'}
+  ${warning}
+</svg>`,
+    placements,
+    overflow,
+  };
+}
+
+function renderPartList(placements) {
+  partList.innerHTML = '';
+  placements.forEach((part, index) => {
+    const item = document.createElement('li');
+    item.innerHTML = `<div class="part-row">
+      <div><strong>${index + 1}. ${escapeXml(part.name)}</strong><div class="part-meta">${Math.round(part.width)}mm × ${Math.round(part.height)}mm</div></div>
+      <button class="mini-button" type="button" data-remove="${part.id}">削除</button>
+    </div>${part.overflow ? '<div class="part-warning">A4範囲外です。サイズか個数を調整してください。</div>' : ''}`;
+    partList.appendChild(item);
+  });
+}
+
+function setPreviewMode(mode) {
+  previewMode = mode;
+  singleModeButton.classList.toggle('active', mode === 'single');
+  sheetModeButton.classList.toggle('active', mode === 'sheet');
+  render();
+}
+
+function addCurrentPart() {
+  const settings = clone(readSettings());
+  const size = dimensions(settings);
+  sheetParts.push({
+    id: createId(),
+    name: partName(settings),
+    settings,
+    width: size.width,
+    height: size.height,
+  });
+  setPreviewMode('sheet');
+}
+
+function removePart(id) {
+  sheetParts = sheetParts.filter((part) => part.id !== id);
+  render();
+}
+
+function clearSheet() {
+  sheetParts = [];
+  render();
+}
+
 function render() {
   const settings = readSettings();
   basicFields.classList.toggle('hidden', settings.type === 'tShape' || settings.type === 'gusset');
@@ -222,35 +358,42 @@ function render() {
   document.querySelectorAll('.rounded-only').forEach((el) => el.classList.toggle('hidden', settings.type !== 'rounded'));
 
   const size = dimensions(settings);
-  const margin = 18;
-  const svgWidth = size.width + margin * 2;
-  const svgHeight = size.height + margin * 2;
-  const pathData = shapePath(settings, 0);
-  const seamPath = shapePath(settings, settings.seam);
   const holes = settings.showHoles ? sampleHoles(settings) : [];
+  const sheet = buildSheetSvg();
+  currentSvg = buildSingleSvg(settings);
+  sheetSvg = sheet.svg;
 
-  currentSvg = `<svg xmlns="${NS}" width="${svgWidth}mm" height="${svgHeight}mm" viewBox="${-margin} ${-margin} ${svgWidth} ${svgHeight}">
-  <rect x="${-margin}" y="${-margin}" width="${svgWidth}" height="${svgHeight}" fill="#fffdf8"/>
-  <path d="${pathData}" fill="none" stroke="#2b2118" stroke-width="0.4" vector-effect="non-scaling-stroke"/>
-  ${settings.showSeam ? `<path d="${seamPath}" fill="none" stroke="#8a4f2a" stroke-width="0.25" stroke-dasharray="2 1.5" vector-effect="non-scaling-stroke"/>` : ''}
-  ${holes.map((p) => `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="0.8" fill="#8a4f2a"/>`).join('\n  ')}
-</svg>`;
-
-  preview.innerHTML = currentSvg;
+  preview.innerHTML = previewMode === 'sheet' ? sheetSvg : currentSvg;
   shapeSummary.textContent = `${Math.round(size.width)}mm × ${Math.round(size.height)}mm`;
   holeSummary.textContent = `${holes.length}個`;
+  sheetSummary.textContent = `${sheetParts.length}個${sheet.overflow ? ' / 範囲外あり' : ''}`;
+  renderPartList(sheet.placements);
 }
 
 function saveSvg() {
-  const blob = new Blob([currentSvg], { type: 'image/svg+xml;charset=utf-8' });
+  const svg = previewMode === 'sheet' ? sheetSvg : currentSvg;
+  const suffix = previewMode === 'sheet' ? 'a4-sheet' : 'single-part';
+  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `leather-pattern-${Date.now()}.svg`;
+  anchor.download = `leather-pattern-${suffix}-${Date.now()}.svg`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
 
+function escapeXml(text) {
+  return String(text).replace(/[<>&"']/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[char]));
+}
+
 controls.forEach((control) => control.addEventListener('input', render));
 downloadSvg.addEventListener('click', saveSvg);
+addPartButton.addEventListener('click', addCurrentPart);
+clearSheetButton.addEventListener('click', clearSheet);
+singleModeButton.addEventListener('click', () => setPreviewMode('single'));
+sheetModeButton.addEventListener('click', () => setPreviewMode('sheet'));
+partList.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-remove]');
+  if (button) removePart(button.dataset.remove);
+});
 render();

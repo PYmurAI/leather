@@ -8,6 +8,7 @@
   --accent: #8a4f2a;
   --accent-dark: #67391d;
   --paper: #fffdf8;
+  --danger: #b7352d;
 }
 
 * { box-sizing: border-box; }
@@ -45,7 +46,7 @@ h2 { font-size: 16px; }
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
+  grid-template-columns: minmax(280px, 380px) 1fr;
   gap: 20px;
   padding: 20px clamp(16px, 4vw, 40px) 32px;
 }
@@ -89,30 +90,56 @@ input, select {
   padding: 8px 10px;
 }
 
-.primary-button {
+.primary-button, .secondary-button, .mode-button, .mini-button {
   min-height: 42px;
-  border: 0;
   border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-  padding: 0 18px;
+  padding: 0 14px;
   font-weight: 700;
   cursor: pointer;
 }
 
+.primary-button {
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+}
+
 .primary-button:hover { background: var(--accent-dark); }
 
-.guide-settings {
+.secondary-button, .mode-button, .mini-button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+}
+
+.secondary-button:hover, .mode-button:hover, .mini-button:hover { border-color: var(--accent); }
+
+.mode-button.active {
+  border-color: var(--accent);
+  background: #f3e7d7;
+  color: var(--accent-dark);
+}
+
+.mini-button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.guide-settings, .parts-panel {
   display: grid;
   gap: 12px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
 }
 
-.toggle-row {
+.toggle-row, .sheet-actions, .preview-mode {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 10px;
+}
+
+.toggle-row {
   color: var(--muted);
   font-weight: 700;
 }
@@ -124,6 +151,8 @@ input, select {
 }
 
 .toggle-row input { width: auto; min-height: auto; }
+
+.sheet-actions > *, .preview-mode > * { flex: 1 1 120px; }
 
 .summary {
   display: grid;
@@ -142,6 +171,48 @@ input, select {
 
 .summary dt { color: var(--muted); font-weight: 700; }
 .summary dd { margin: 0; text-align: right; }
+
+.part-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.part-list:empty::before {
+  content: "まだA4に追加されたパーツはありません";
+  display: block;
+  margin-left: -20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.part-list li {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.part-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.part-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.part-warning {
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 4px;
+}
 
 .preview-shell {
   min-height: calc(100vh - 134px);
@@ -176,5 +247,5 @@ input, select {
 
 @media (max-width: 520px) {
   .grid-fields { grid-template-columns: 1fr; }
-  .primary-button { width: 100%; }
+  .primary-button, .secondary-button { width: 100%; }
 }

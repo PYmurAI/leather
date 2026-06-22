@@ -62,7 +62,23 @@
         <dl class="summary">
           <div><dt>外形</dt><dd id="shapeSummary">-</dd></div>
           <div><dt>穴数</dt><dd id="holeSummary">-</dd></div>
+          <div><dt>A4配置</dt><dd id="sheetSummary">0個</dd></div>
         </dl>
+
+        <div class="sheet-actions">
+          <button id="addPart" class="primary-button" type="button">A4に追加</button>
+          <button id="clearSheet" class="secondary-button" type="button">A4をクリア</button>
+        </div>
+
+        <div class="preview-mode" role="group" aria-label="プレビュー切替">
+          <button id="singleMode" class="mode-button active" type="button">単体</button>
+          <button id="sheetMode" class="mode-button" type="button">A4まとめ</button>
+        </div>
+
+        <div class="parts-panel">
+          <h2>配置パーツ</h2>
+          <ol id="partList" class="part-list"></ol>
+        </div>
       </section>
 
       <section class="preview-shell" aria-label="型紙プレビュー">
