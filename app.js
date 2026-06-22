@@ -30,6 +30,7 @@ const checked = (id) => document.getElementById(id).checked;
 const clamp = (number, min, max) => Math.min(Math.max(number, min), max);
 const clone = (object) => JSON.parse(JSON.stringify(object));
 const createId = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()));
+const addQuantity = () => clamp(Math.floor(value('partQuantity')), 1, 99);
 
 function readSettings() {
   const type = selectValue('partType');
@@ -365,15 +366,19 @@ function setPreviewMode(mode) {
 }
 
 function addCurrentPart() {
+  const quantity = addQuantity();
   const settings = clone(readSettings());
   const size = dimensions(settings);
-  sheetParts.push({
-    id: createId(),
-    name: partName(settings),
-    settings,
-    width: size.width,
-    height: size.height,
-  });
+  const name = partName(settings);
+  for (let index = 0; index < quantity; index += 1) {
+    sheetParts.push({
+      id: createId(),
+      name: quantity > 1 ? `${name} 複製${index + 1}/${quantity}` : name,
+      settings: clone(settings),
+      width: size.width,
+      height: size.height,
+    });
+  }
   setPreviewMode('sheet');
 }
 
