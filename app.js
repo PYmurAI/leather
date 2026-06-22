@@ -55,7 +55,8 @@ function readSettings() {
   if (type === 'gusset') {
     return {
       ...common,
-      width: value('gussetWidth'),
+      topWidth: value('gussetTopWidth'),
+      bottomWidth: value('gussetBottomWidth'),
       height: value('gussetHeight'),
       gussetType: selectValue('gussetType'),
     };
@@ -139,16 +140,35 @@ function tShapePath(settings, inset) {
   ].join(' ');
 }
 
+function gussetGeometry(settings, inset = 0) {
+  const top = Math.max(settings.topWidth - inset * 2, 1);
+  const bottom = Math.max(settings.bottomWidth - inset * 2, 1);
+  const width = Math.max(top, bottom);
+  const height = Math.max(settings.height - inset * 2, 1);
+  const topX = inset + (width - top) / 2;
+  const bottomX = inset + (width - bottom) / 2;
+  return { x: inset, y: inset, topX, bottomX, top, bottom, width, height };
+}
+
 function gussetPath(settings, inset) {
-  const w = Math.max(settings.width - inset * 2, 1);
-  const h = Math.max(settings.height - inset * 2, 1);
-  const x = inset;
-  const y = inset;
+  const g = gussetGeometry(settings, inset);
   if (settings.gussetType === 'fan') {
-    return [`M ${x} ${y + h}`, `Q ${x + w / 2} ${y} ${x + w} ${y + h}`, 'Z'].join(' ');
+    const curveLift = Math.min(g.height * 0.45, Math.max(Math.abs(g.bottom - g.top) * 0.22, 6));
+    return [
+      `M ${g.bottomX} ${g.y + g.height}`,
+      `L ${g.topX} ${g.y + curveLift}`,
+      `Q ${g.bottomX + g.bottom / 2} ${g.y - curveLift} ${g.topX + g.top} ${g.y + curveLift}`,
+      `L ${g.bottomX + g.bottom} ${g.y + g.height}`,
+      'Z',
+    ].join(' ');
   }
-  const taper = Math.min(w * 0.16, h * 0.6);
-  return [`M ${x + taper} ${y}`, `H ${x + w - taper}`, `L ${x + w} ${y + h}`, `H ${x}`, 'Z'].join(' ');
+  return [
+    `M ${g.topX} ${g.y}`,
+    `H ${g.topX + g.top}`,
+    `L ${g.bottomX + g.bottom} ${g.y + g.height}`,
+    `H ${g.bottomX}`,
+    'Z',
+  ].join(' ');
 }
 
 function sampleHoles(settings) {
@@ -187,22 +207,20 @@ function approximatePathPoints(settings, inset) {
   }
 
   if (settings.type === 'gusset') {
-    const w = Math.max(settings.width - inset * 2, 1);
-    const h = Math.max(settings.height - inset * 2, 1);
-    const x = inset;
-    const y = inset;
+    const g = gussetGeometry(settings, inset);
     if (settings.gussetType === 'fan') {
-      const points = [];
-      for (let i = 0; i <= 32; i += 1) {
+      const curveLift = Math.min(g.height * 0.45, Math.max(Math.abs(g.bottom - g.top) * 0.22, 6));
+      const points = [{ x: g.bottomX, y: g.y + g.height }, { x: g.topX, y: g.y + curveLift }];
+      for (let i = 1; i <= 32; i += 1) {
         const t = i / 32;
-        const px = (1 - t) * (1 - t) * x + 2 * (1 - t) * t * (x + w / 2) + t * t * (x + w);
-        const py = (1 - t) * (1 - t) * (y + h) + 2 * (1 - t) * t * y + t * t * (y + h);
+        const px = (1 - t) * (1 - t) * g.topX + 2 * (1 - t) * t * (g.bottomX + g.bottom / 2) + t * t * (g.topX + g.top);
+        const py = (1 - t) * (1 - t) * (g.y + curveLift) + 2 * (1 - t) * t * (g.y - curveLift) + t * t * (g.y + curveLift);
         points.push({ x: px, y: py });
       }
+      points.push({ x: g.bottomX + g.bottom, y: g.y + g.height });
       return points;
     }
-    const taper = Math.min(w * 0.16, h * 0.6);
-    return [{x: x + taper, y}, {x: x + w - taper, y}, {x: x + w, y: y + h}, {x, y: y + h}];
+    return [{ x: g.topX, y: g.y }, { x: g.topX + g.top, y: g.y }, { x: g.bottomX + g.bottom, y: g.y + g.height }, { x: g.bottomX, y: g.y + g.height }];
   }
 
   return roundedRectPoints(settings, inset);
@@ -239,6 +257,7 @@ function roundedRectPoints(settings, inset) {
 
 function dimensions(settings) {
   if (settings.type === 'tShape') return { width: settings.wingWidth, height: settings.bodyHeight + settings.wingHeight };
+  if (settings.type === 'gusset') return { width: Math.max(settings.topWidth, settings.bottomWidth), height: settings.height };
   return { width: settings.width, height: settings.height };
 }
 
