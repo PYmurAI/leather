@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>レザークラフト型紙ジェネレーター</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Leather Pattern Generator</p>
+        <h1>レザークラフト型紙ジェネレーター</h1>
+      </div>
+      <button id="downloadSvg" class="primary-button" type="button">SVG保存</button>
+    </header>
+
+    <main class="workspace">
+      <section class="controls" aria-label="型紙設定">
+        <div class="field-group">
+          <label for="partType">パーツ種類</label>
+          <select id="partType">
+            <option value="rect">長方形</option>
+            <option value="rounded" selected>R付き長方形</option>
+            <option value="tShape">T字パーツ</option>
+            <option value="gusset">マチパーツ</option>
+          </select>
+        </div>
+
+        <div id="basicFields" class="grid-fields">
+          <label>横幅(mm)<input id="width" type="number" min="10" max="600" step="1" value="230" /></label>
+          <label>高さ(mm)<input id="height" type="number" min="10" max="600" step="1" value="65" /></label>
+          <label class="rounded-only">Rサイズ(mm)<input id="radius" type="number" min="0" max="120" step="1" value="20" /></label>
+          <label class="rounded-only">Rオプション<select id="radiusMode"><option value="top" selected>上のみR</option><option value="bottom">下のみR</option><option value="all">全周R</option></select></label>
+        </div>
+
+        <div id="tFields" class="grid-fields hidden">
+          <label>本体幅(mm)<input id="bodyWidth" type="number" min="10" max="600" step="1" value="80" /></label>
+          <label>本体高さ(mm)<input id="bodyHeight" type="number" min="10" max="600" step="1" value="120" /></label>
+          <label>羽幅(mm)<input id="wingWidth" type="number" min="10" max="600" step="1" value="170" /></label>
+          <label>羽高さ(mm)<input id="wingHeight" type="number" min="10" max="300" step="1" value="45" /></label>
+        </div>
+
+        <div id="gussetFields" class="grid-fields hidden">
+          <label>幅(mm)<input id="gussetWidth" type="number" min="10" max="600" step="1" value="160" /></label>
+          <label>高さ(mm)<input id="gussetHeight" type="number" min="10" max="300" step="1" value="55" /></label>
+          <label>種類<select id="gussetType"><option value="straight">直線マチ</option><option value="fan">扇形マチ</option></select></label>
+        </div>
+
+        <div class="guide-settings">
+          <h2>菱目打ちガイド</h2>
+          <div class="grid-fields">
+            <label>ピッチ(mm)<input id="pitch" type="number" min="1" max="20" step="0.5" value="4" /></label>
+            <label>縫い代(mm)<input id="seam" type="number" min="0" max="30" step="0.5" value="3" /></label>
+          </div>
+          <div class="toggle-row">
+            <label><input id="showSeam" type="checkbox" checked /> 縫い線</label>
+            <label><input id="showHoles" type="checkbox" checked /> 穴位置</label>
+          </div>
+        </div>
+
+        <dl class="summary">
+          <div><dt>外形</dt><dd id="shapeSummary">-</dd></div>
+          <div><dt>穴数</dt><dd id="holeSummary">-</dd></div>
+        </dl>
+      </section>
+
+      <section class="preview-shell" aria-label="型紙プレビュー">
+        <div id="preview" class="preview"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
