@@ -126,7 +126,7 @@ input, select {
   font-size: 12px;
 }
 
-.guide-settings, .parts-panel {
+.guide-settings, .sheet-settings, .parts-panel {
   display: grid;
   gap: 12px;
   padding-top: 14px;
@@ -205,6 +205,7 @@ input, select {
   color: var(--muted);
   font-size: 12px;
   margin-top: 3px;
+  line-height: 1.5;
 }
 
 .part-warning {
@@ -218,6 +219,23 @@ input, select {
   min-height: calc(100vh - 134px);
   overflow: auto;
   padding: 18px;
+}
+
+.preview-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.preview-status span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .preview {

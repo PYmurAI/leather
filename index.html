@@ -47,6 +47,13 @@
           <label>種類<select id="gussetType"><option value="straight">直線マチ</option><option value="fan">扇形マチ</option></select></label>
         </div>
 
+        <div class="sheet-settings">
+          <h2>A4まとめ</h2>
+          <div class="grid-fields">
+            <label>A4向き<select id="sheetOrientation"><option value="portrait">縦 210×297mm</option><option value="landscape" selected>横 297×210mm</option></select></label>
+          </div>
+        </div>
+
         <div class="guide-settings">
           <h2>菱目打ちガイド</h2>
           <div class="grid-fields">
@@ -63,6 +70,7 @@
           <div><dt>外形</dt><dd id="shapeSummary">-</dd></div>
           <div><dt>穴数</dt><dd id="holeSummary">-</dd></div>
           <div><dt>A4配置</dt><dd id="sheetSummary">0個</dd></div>
+          <div><dt>保存対象</dt><dd id="saveSummary">単体SVG</dd></div>
         </dl>
 
         <div class="sheet-actions">
@@ -82,6 +90,10 @@
       </section>
 
       <section class="preview-shell" aria-label="型紙プレビュー">
+        <div class="preview-status">
+          <strong id="previewTitle">単体SVG</strong>
+          <span id="previewDetail">表示中の内容がSVG保存されます</span>
+        </div>
         <div id="preview" class="preview"></div>
       </section>
     </main>
