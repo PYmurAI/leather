@@ -91,15 +91,62 @@ function shapePath(settings, inset = 0) {
 
 function guidePath(settings, inset = 0) {
   if (settings.type === 'tShape' || settings.type === 'gusset') {
-    return pointsToClosedPath(approximatePathPoints(settings, inset));
+    return pointsToClosedPath(guidePoints(settings, inset));
   }
   return shapePath(settings, inset);
+}
+
+function guidePoints(settings, inset = 0) {
+  if (settings.type === 'tShape') return offsetClosedPolyline(tShapePoints(settings), inset);
+  if (settings.type === 'gusset') return offsetClosedPolyline(gussetPoints(settings), inset);
+  return approximatePathPoints(settings, inset);
 }
 
 function pointsToClosedPath(points) {
   if (!points.length) return '';
   const [first, ...rest] = points;
   return [`M ${first.x} ${first.y}`, ...rest.map((point) => `L ${point.x} ${point.y}`), 'Z'].join(' ');
+}
+
+function polygonArea(points) {
+  return points.reduce((sum, point, index) => {
+    const next = points[(index + 1) % points.length];
+    return sum + point.x * next.y - next.x * point.y;
+  }, 0) / 2;
+}
+
+function lineIntersection(a1, a2, b1, b2) {
+  const dax = a2.x - a1.x;
+  const day = a2.y - a1.y;
+  const dbx = b2.x - b1.x;
+  const dby = b2.y - b1.y;
+  const denominator = dax * dby - day * dbx;
+  if (Math.abs(denominator) < 0.000001) return null;
+  const t = ((b1.x - a1.x) * dby - (b1.y - a1.y) * dbx) / denominator;
+  return { x: a1.x + dax * t, y: a1.y + day * t };
+}
+
+function offsetClosedPolyline(points, distance) {
+  if (!distance || points.length < 3) return points.map((point) => ({ ...point }));
+  const clockwise = polygonArea(points) > 0;
+  const offsetEdges = points.map((point, index) => {
+    const next = points[(index + 1) % points.length];
+    const dx = next.x - point.x;
+    const dy = next.y - point.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const nx = clockwise ? -dy / length : dy / length;
+    const ny = clockwise ? dx / length : -dx / length;
+    return {
+      a: { x: point.x + nx * distance, y: point.y + ny * distance },
+      b: { x: next.x + nx * distance, y: next.y + ny * distance },
+    };
+  });
+
+  return points.map((point, index) => {
+    const previous = offsetEdges[(index - 1 + offsetEdges.length) % offsetEdges.length];
+    const current = offsetEdges[index];
+    return lineIntersection(previous.a, previous.b, current.a, current.b) ?? current.a;
+  });
 }
 
 function roundedRectPath(settings, inset) {
@@ -129,59 +176,64 @@ function roundedRectPath(settings, inset) {
   ].join(' ');
 }
 
-function tShapePath(settings, inset) {
-  const wingWidth = Math.max(settings.wingWidth - inset * 2, 1);
-  const wingHeight = Math.max(settings.wingHeight - inset * 2, 1);
-  const bodyWidth = Math.max(settings.bodyWidth - inset * 2, 1);
-  const bodyHeight = Math.max(settings.bodyHeight - inset * 2, 1);
-  const bodyX = inset + (wingWidth - bodyWidth) / 2;
-  const left = inset;
-  const top = inset;
-  const right = inset + wingWidth;
-  const bottom = inset + wingHeight + bodyHeight;
-
+function tShapePoints(settings) {
+  const wingWidth = Math.max(settings.wingWidth, 1);
+  const wingHeight = Math.max(settings.wingHeight, 1);
+  const bodyWidth = Math.max(settings.bodyWidth, 1);
+  const bodyHeight = Math.max(settings.bodyHeight, 1);
+  const bodyX = (wingWidth - bodyWidth) / 2;
   return [
-    `M ${left} ${top}`,
-    `H ${right}`,
-    `V ${top + wingHeight}`,
-    `H ${bodyX + bodyWidth}`,
-    `V ${bottom}`,
-    `H ${bodyX}`,
-    `V ${top + wingHeight}`,
-    `H ${left}`,
-    'Z',
-  ].join(' ');
+    { x: 0, y: 0 },
+    { x: wingWidth, y: 0 },
+    { x: wingWidth, y: wingHeight },
+    { x: bodyX + bodyWidth, y: wingHeight },
+    { x: bodyX + bodyWidth, y: wingHeight + bodyHeight },
+    { x: bodyX, y: wingHeight + bodyHeight },
+    { x: bodyX, y: wingHeight },
+    { x: 0, y: wingHeight },
+  ];
 }
 
-function gussetGeometry(settings, inset = 0) {
-  const top = Math.max(settings.topWidth - inset * 2, 1);
-  const bottom = Math.max(settings.bottomWidth - inset * 2, 1);
+function tShapePath(settings, inset) {
+  const points = inset ? offsetClosedPolyline(tShapePoints(settings), inset) : tShapePoints(settings);
+  return pointsToClosedPath(points);
+}
+
+function gussetGeometry(settings) {
+  const top = Math.max(settings.topWidth, 1);
+  const bottom = Math.max(settings.bottomWidth, 1);
   const width = Math.max(top, bottom);
-  const height = Math.max(settings.height - inset * 2, 1);
-  const topX = inset + (width - top) / 2;
-  const bottomX = inset + (width - bottom) / 2;
-  return { x: inset, y: inset, topX, bottomX, top, bottom, width, height };
+  const height = Math.max(settings.height, 1);
+  const topX = (width - top) / 2;
+  const bottomX = (width - bottom) / 2;
+  return { x: 0, y: 0, topX, bottomX, top, bottom, width, height };
+}
+
+function gussetPoints(settings) {
+  const g = gussetGeometry(settings);
+  if (settings.gussetType === 'fan') {
+    const curveLift = Math.min(g.height * 0.45, Math.max(Math.abs(g.bottom - g.top) * 0.22, 6));
+    const points = [{ x: g.bottomX, y: g.height }, { x: g.topX, y: curveLift }];
+    for (let i = 1; i <= 32; i += 1) {
+      const t = i / 32;
+      const px = (1 - t) * (1 - t) * g.topX + 2 * (1 - t) * t * (g.bottomX + g.bottom / 2) + t * t * (g.topX + g.top);
+      const py = (1 - t) * (1 - t) * curveLift + 2 * (1 - t) * t * -curveLift + t * t * curveLift;
+      points.push({ x: px, y: py });
+    }
+    points.push({ x: g.bottomX + g.bottom, y: g.height });
+    return points;
+  }
+  return [
+    { x: g.topX, y: 0 },
+    { x: g.topX + g.top, y: 0 },
+    { x: g.bottomX + g.bottom, y: g.height },
+    { x: g.bottomX, y: g.height },
+  ];
 }
 
 function gussetPath(settings, inset) {
-  const g = gussetGeometry(settings, inset);
-  if (settings.gussetType === 'fan') {
-    const curveLift = Math.min(g.height * 0.45, Math.max(Math.abs(g.bottom - g.top) * 0.22, 6));
-    return [
-      `M ${g.bottomX} ${g.y + g.height}`,
-      `L ${g.topX} ${g.y + curveLift}`,
-      `Q ${g.bottomX + g.bottom / 2} ${g.y - curveLift} ${g.topX + g.top} ${g.y + curveLift}`,
-      `L ${g.bottomX + g.bottom} ${g.y + g.height}`,
-      'Z',
-    ].join(' ');
-  }
-  return [
-    `M ${g.topX} ${g.y}`,
-    `H ${g.topX + g.top}`,
-    `L ${g.bottomX + g.bottom} ${g.y + g.height}`,
-    `H ${g.bottomX}`,
-    'Z',
-  ].join(' ');
+  const points = inset ? offsetClosedPolyline(gussetPoints(settings), inset) : gussetPoints(settings);
+  return pointsToClosedPath(points);
 }
 
 function sampleHoles(settings) {
@@ -208,34 +260,7 @@ function sampleHoles(settings) {
 }
 
 function approximatePathPoints(settings, inset) {
-  if (settings.type === 'tShape') {
-    const wingWidth = Math.max(settings.wingWidth - inset * 2, 1);
-    const wingHeight = Math.max(settings.wingHeight - inset * 2, 1);
-    const bodyWidth = Math.max(settings.bodyWidth - inset * 2, 1);
-    const bodyHeight = Math.max(settings.bodyHeight - inset * 2, 1);
-    const bodyX = inset + (wingWidth - bodyWidth) / 2;
-    const x = inset;
-    const y = inset;
-    return [{x, y}, {x: x + wingWidth, y}, {x: x + wingWidth, y: y + wingHeight}, {x: bodyX + bodyWidth, y: y + wingHeight}, {x: bodyX + bodyWidth, y: y + wingHeight + bodyHeight}, {x: bodyX, y: y + wingHeight + bodyHeight}, {x: bodyX, y: y + wingHeight}, {x, y: y + wingHeight}];
-  }
-
-  if (settings.type === 'gusset') {
-    const g = gussetGeometry(settings, inset);
-    if (settings.gussetType === 'fan') {
-      const curveLift = Math.min(g.height * 0.45, Math.max(Math.abs(g.bottom - g.top) * 0.22, 6));
-      const points = [{ x: g.bottomX, y: g.y + g.height }, { x: g.topX, y: g.y + curveLift }];
-      for (let i = 1; i <= 32; i += 1) {
-        const t = i / 32;
-        const px = (1 - t) * (1 - t) * g.topX + 2 * (1 - t) * t * (g.bottomX + g.bottom / 2) + t * t * (g.topX + g.top);
-        const py = (1 - t) * (1 - t) * (g.y + curveLift) + 2 * (1 - t) * t * (g.y - curveLift) + t * t * (g.y + curveLift);
-        points.push({ x: px, y: py });
-      }
-      points.push({ x: g.bottomX + g.bottom, y: g.y + g.height });
-      return points;
-    }
-    return [{ x: g.topX, y: g.y }, { x: g.topX + g.top, y: g.y }, { x: g.bottomX + g.bottom, y: g.y + g.height }, { x: g.bottomX, y: g.y + g.height }];
-  }
-
+  if (settings.type === 'tShape' || settings.type === 'gusset') return guidePoints(settings, inset);
   return roundedRectPoints(settings, inset);
 }
 
