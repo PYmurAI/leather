@@ -73,7 +73,14 @@
           <div><dt>穴数</dt><dd id="holeSummary">-</dd></div>
           <div><dt>A4配置</dt><dd id="sheetSummary">0個 / 1ページ</dd></div>
           <div><dt>保存対象</dt><dd id="saveSummary">単体SVG</dd></div>
+          <div><dt>作業保存</dt><dd id="draftSummary">未保存</dd></div>
         </dl>
+
+        <div class="draft-actions">
+          <button id="saveDraft" class="secondary-button" type="button">作業を保存</button>
+          <button id="loadDraft" class="secondary-button" type="button">保存を復元</button>
+          <button id="clearDraft" class="secondary-button danger-button" type="button">保存を削除</button>
+        </div>
 
         <div class="sheet-actions">
           <button id="addPart" class="primary-button" type="button">A4ページに追加</button>

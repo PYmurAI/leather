@@ -133,7 +133,7 @@ input, select {
   border-top: 1px solid var(--line);
 }
 
-.toggle-row, .sheet-actions, .preview-mode {
+.toggle-row, .draft-actions, .sheet-actions, .preview-mode {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -152,7 +152,12 @@ input, select {
 
 .toggle-row input { width: auto; min-height: auto; }
 
-.sheet-actions > *, .preview-mode > * { flex: 1 1 120px; }
+.draft-actions > *, .sheet-actions > *, .preview-mode > * { flex: 1 1 120px; }
+
+.danger-button {
+  border-color: #d9a39f;
+  color: var(--danger);
+}
 
 .summary {
   display: grid;

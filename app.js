@@ -1,6 +1,7 @@
 const NS = 'http://www.w3.org/2000/svg';
 const A4_SIZES = { portrait: { width: 210, height: 297 }, landscape: { width: 297, height: 210 } };
 const SHEET = { margin: 8, gap: 6, pageGap: 12, headerHeight: 8 };
+const DRAFT_KEY = 'leather-pattern-generator-draft-v1';
 const controls = [...document.querySelectorAll('input, select')];
 const preview = document.getElementById('preview');
 const basicFields = document.getElementById('basicFields');
@@ -10,12 +11,16 @@ const shapeSummary = document.getElementById('shapeSummary');
 const holeSummary = document.getElementById('holeSummary');
 const sheetSummary = document.getElementById('sheetSummary');
 const saveSummary = document.getElementById('saveSummary');
+const draftSummary = document.getElementById('draftSummary');
 const previewTitle = document.getElementById('previewTitle');
 const previewDetail = document.getElementById('previewDetail');
 const partList = document.getElementById('partList');
 const downloadSvg = document.getElementById('downloadSvg');
 const addPartButton = document.getElementById('addPart');
 const clearSheetButton = document.getElementById('clearSheet');
+const saveDraftButton = document.getElementById('saveDraft');
+const loadDraftButton = document.getElementById('loadDraft');
+const clearDraftButton = document.getElementById('clearDraft');
 const singleModeButton = document.getElementById('singleMode');
 const sheetModeButton = document.getElementById('sheetMode');
 
@@ -23,6 +28,8 @@ let currentSvg = '';
 let sheetSvg = '';
 let previewMode = 'single';
 let sheetParts = [];
+let isRestoringDraft = false;
+let draftMessage = '';
 
 const value = (id) => Number(document.getElementById(id).value) || 0;
 const selectValue = (id) => document.getElementById(id).value;
@@ -69,6 +76,106 @@ function readSettings() {
     radius: type === 'rounded' ? value('radius') : 0,
     radiusMode: selectValue('radiusMode'),
   };
+}
+
+function readControlValues() {
+  return controls.reduce((data, control) => {
+    data[control.id] = control.type === 'checkbox' ? control.checked : control.value;
+    return data;
+  }, {});
+}
+
+function applyControlValues(data) {
+  if (!data || typeof data !== 'object') return;
+  controls.forEach((control) => {
+    if (!Object.prototype.hasOwnProperty.call(data, control.id)) return;
+    if (control.type === 'checkbox') {
+      control.checked = Boolean(data[control.id]);
+    } else {
+      control.value = data[control.id];
+    }
+  });
+}
+
+function draftPayload() {
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    controls: readControlValues(),
+    previewMode,
+    sheetParts,
+  };
+}
+
+function formatSavedAt(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('ja-JP', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function readDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const draft = JSON.parse(raw);
+    if (!draft || draft.version !== 1 || typeof draft.controls !== 'object' || !Array.isArray(draft.sheetParts)) return null;
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+function updateDraftSummary() {
+  const draft = readDraft();
+  const savedAt = formatSavedAt(draft?.savedAt);
+  draftSummary.textContent = draftMessage || (savedAt ? `保存済み ${savedAt}` : '未保存');
+}
+
+function saveDraft(message = '') {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draftPayload()));
+    draftMessage = message;
+  } catch {
+    draftMessage = '保存できませんでした';
+  }
+  updateDraftSummary();
+}
+
+function restoreDraft(showMessage = true) {
+  const draft = readDraft();
+  if (!draft) {
+    draftMessage = showMessage ? '保存データなし' : '';
+    updateDraftSummary();
+    return false;
+  }
+
+  isRestoringDraft = true;
+  applyControlValues(draft.controls);
+  previewMode = draft.previewMode === 'sheet' ? 'sheet' : 'single';
+  sheetParts = draft.sheetParts
+    .filter((part) => part && part.settings)
+    .map((part) => ({
+      ...part,
+      id: part.id || createId(),
+      settings: clone(part.settings),
+    }));
+  draftMessage = showMessage ? '復元しました' : '';
+  setPreviewMode(previewMode, false);
+  isRestoringDraft = false;
+  updateDraftSummary();
+  return true;
+}
+
+function clearDraftStorage() {
+  localStorage.removeItem(DRAFT_KEY);
+  draftMessage = '保存を削除しました';
+  updateDraftSummary();
 }
 
 function partName(settings) {
@@ -466,7 +573,12 @@ function renderPartList(placements) {
   });
 }
 
-function setPreviewMode(mode) {
+function markDraftDirty() {
+  draftMessage = '未保存の変更あり';
+}
+
+function setPreviewMode(mode, markDirty = true) {
+  if (markDirty && mode !== previewMode) markDraftDirty();
   previewMode = mode;
   singleModeButton.classList.toggle('active', mode === 'single');
   sheetModeButton.classList.toggle('active', mode === 'sheet');
@@ -474,6 +586,7 @@ function setPreviewMode(mode) {
 }
 
 function addCurrentPart() {
+  markDraftDirty();
   const quantity = addQuantity();
   const settings = clone(readSettings());
   const size = dimensions(settings);
@@ -491,11 +604,13 @@ function addCurrentPart() {
 }
 
 function removePart(id) {
+  markDraftDirty();
   sheetParts = sheetParts.filter((part) => part.id !== id);
   render();
 }
 
 function clearSheet() {
+  markDraftDirty();
   sheetParts = [];
   render();
 }
@@ -525,6 +640,7 @@ function render() {
     : `${Math.round(size.width)}mm × ${Math.round(size.height)}mm / 表示中の単体パーツが保存されます`;
   downloadSvg.textContent = `${saveLabel}を保存`;
   renderPartList(sheet.placements);
+  updateDraftSummary();
 }
 
 function saveSvg() {
@@ -543,14 +659,20 @@ function escapeXml(text) {
   return String(text).replace(/[<>&"']/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[char]));
 }
 
-controls.forEach((control) => control.addEventListener('input', render));
+controls.forEach((control) => control.addEventListener('input', () => {
+  markDraftDirty();
+  render();
+}));
 downloadSvg.addEventListener('click', saveSvg);
 addPartButton.addEventListener('click', addCurrentPart);
 clearSheetButton.addEventListener('click', clearSheet);
+saveDraftButton.addEventListener('click', () => saveDraft('保存しました'));
+loadDraftButton.addEventListener('click', () => restoreDraft(true));
+clearDraftButton.addEventListener('click', clearDraftStorage);
 singleModeButton.addEventListener('click', () => setPreviewMode('single'));
 sheetModeButton.addEventListener('click', () => setPreviewMode('sheet'));
 partList.addEventListener('click', (event) => {
   const button = event.target.closest('[data-remove]');
   if (button) removePart(button.dataset.remove);
 });
-render();
+if (!restoreDraft(false)) render();
