@@ -180,7 +180,7 @@ input, select {
 }
 
 .part-list:empty::before {
-  content: "まだA4に追加されたパーツはありません";
+  content: "まだA4ページに追加されたパーツはありません";
   display: block;
   margin-left: -20px;
   color: var(--muted);
@@ -242,7 +242,8 @@ input, select {
   min-width: 320px;
   min-height: 100%;
   display: grid;
-  place-items: center;
+  place-items: start center;
+  padding: 16px;
   background-color: var(--paper);
   background-image: linear-gradient(#eee5da 1px, transparent 1px), linear-gradient(90deg, #eee5da 1px, transparent 1px);
   background-size: 20px 20px;

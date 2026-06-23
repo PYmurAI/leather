@@ -1,6 +1,6 @@
 const NS = 'http://www.w3.org/2000/svg';
 const A4_SIZES = { portrait: { width: 210, height: 297 }, landscape: { width: 297, height: 210 } };
-const SHEET = { margin: 8, gap: 6 };
+const SHEET = { margin: 8, gap: 6, pageGap: 12, headerHeight: 8 };
 const controls = [...document.querySelectorAll('input, select')];
 const preview = document.getElementById('preview');
 const basicFields = document.getElementById('basicFields');
@@ -328,32 +328,72 @@ function buildSingleSvg(settings) {
 function layoutSheetParts(parts) {
   const page = sheetSize();
   const printableWidth = page.width - SHEET.margin * 2;
-  const printableHeight = page.height - SHEET.margin * 2;
-  let x = SHEET.margin;
-  let y = SHEET.margin + 8;
+  const startX = SHEET.margin;
+  const startY = SHEET.margin + SHEET.headerHeight;
+  const rightLimit = page.width - SHEET.margin;
+  const bottomLimit = page.height - SHEET.margin;
+  const printableHeight = bottomLimit - startY;
+  let pageIndex = 0;
+  let x = startX;
+  let y = startY;
   let rowHeight = 0;
 
-  return parts.map((part) => {
+  const newPage = () => {
+    pageIndex += 1;
+    x = startX;
+    y = startY;
+    rowHeight = 0;
+  };
+
+  const placements = parts.map((part) => {
     const size = dimensions(part.settings);
     const tooWide = size.width > printableWidth;
     const tooTall = size.height > printableHeight;
-    if (x + size.width > page.width - SHEET.margin && x > SHEET.margin) {
-      x = SHEET.margin;
+
+    if (!tooWide && x + size.width > rightLimit && x > startX) {
+      x = startX;
       y += rowHeight + SHEET.gap;
       rowHeight = 0;
     }
+
+    if (!tooTall && y + size.height > bottomLimit && y > startY) {
+      newPage();
+    }
+
     const placement = {
       ...part,
+      pageIndex,
       x,
       y,
       width: size.width,
       height: size.height,
-      overflow: tooWide || tooTall || y + size.height > page.height - SHEET.margin,
+      overflow: tooWide || tooTall,
     };
+
     x += size.width + SHEET.gap;
     rowHeight = Math.max(rowHeight, size.height);
     return placement;
   });
+
+  return {
+    placements,
+    pageCount: Math.max(1, placements.reduce((max, part) => Math.max(max, part.pageIndex + 1), 0)),
+  };
+}
+
+function pageOffset(page, pageIndex) {
+  return pageIndex * (page.height + SHEET.pageGap);
+}
+
+function pageChromeSvg(page, pageIndex, pageCount) {
+  const yOffset = pageOffset(page, pageIndex);
+  const orientationName = page.width > page.height ? '横' : '縦';
+  return `<g transform="translate(0 ${yOffset})">
+  <rect x="0" y="0" width="${page.width}" height="${page.height}" fill="#fffdf8"/>
+  <rect x="${SHEET.margin}" y="${SHEET.margin}" width="${page.width - SHEET.margin * 2}" height="${page.height - SHEET.margin * 2}" fill="none" stroke="#8a4f2a" stroke-width="0.35" stroke-dasharray="2 2"/>
+  ${sheetGuideSvg(page)}
+  <text x="8" y="6" font-size="4" fill="#74675a">A4${orientationName} / ${page.width}mm x ${page.height}mm / ${pageIndex + 1} of ${pageCount}</text>
+</g>`;
 }
 
 function sheetGuideSvg(page) {
@@ -380,26 +420,37 @@ function placementFrameSvg(part, index) {
 
 function buildSheetSvg() {
   const page = sheetSize();
-  const placements = layoutSheetParts(sheetParts);
+  const layout = layoutSheetParts(sheetParts);
+  const { placements, pageCount } = layout;
   const overflow = placements.some((part) => part.overflow);
-  const framesSvg = placements.map((part, index) => placementFrameSvg(part, index)).join('\n  ');
-  const partsSvg = placements.map((part, index) => renderPart(part.settings, part.x, part.y, `${index + 1}. ${part.name}`)).join('\n  ');
-  const orientationName = page.width > page.height ? '横' : '縦';
-  const warning = overflow ? `<text x="8" y="${page.height - 5}" font-size="4" fill="#b7352d">A4範囲外のパーツがあります</text>` : '';
+  const docHeight = page.height * pageCount + SHEET.pageGap * (pageCount - 1);
+  const pagesSvg = Array.from({ length: pageCount }, (_, pageIndex) => pageChromeSvg(page, pageIndex, pageCount)).join('\n  ');
+  const framesSvg = placements.map((part, index) => {
+    const yOffset = pageOffset(page, part.pageIndex);
+    return `<g transform="translate(0 ${yOffset})">${placementFrameSvg(part, index)}</g>`;
+  }).join('\n  ');
+  const partsSvg = placements.map((part, index) => {
+    const yOffset = pageOffset(page, part.pageIndex);
+    return renderPart(part.settings, part.x, part.y + yOffset, `${index + 1}. ${part.name}`);
+  }).join('\n  ');
+  const emptySvg = `<text x="${page.width / 2}" y="${page.height / 2}" text-anchor="middle" font-size="5" fill="#74675a">A4に追加したパーツがここに表示されます</text>`;
+  const warningsSvg = Array.from(new Set(placements.filter((part) => part.overflow).map((part) => part.pageIndex))).map((pageIndex) => {
+    const yOffset = pageOffset(page, pageIndex);
+    return `<text x="8" y="${yOffset + page.height - 5}" font-size="4" fill="#b7352d">A4範囲外のパーツがあります</text>`;
+  }).join('\n  ');
 
   return {
-    svg: `<svg xmlns="${NS}" width="${page.width}mm" height="${page.height}mm" viewBox="0 0 ${page.width} ${page.height}">
-  <rect x="0" y="0" width="${page.width}" height="${page.height}" fill="#fffdf8"/>
-  <rect x="${SHEET.margin}" y="${SHEET.margin}" width="${page.width - SHEET.margin * 2}" height="${page.height - SHEET.margin * 2}" fill="none" stroke="#8a4f2a" stroke-width="0.35" stroke-dasharray="2 2"/>
-  ${sheetGuideSvg(page)}
-  <text x="8" y="6" font-size="4" fill="#74675a">A4${orientationName} / ${page.width}mm x ${page.height}mm / dashed line = printable guide</text>
+    svg: `<svg xmlns="${NS}" width="${page.width}mm" height="${docHeight}mm" viewBox="0 0 ${page.width} ${docHeight}">
+  ${pagesSvg}
   ${framesSvg}
-  ${partsSvg || `<text x="${page.width / 2}" y="${page.height / 2}" text-anchor="middle" font-size="5" fill="#74675a">A4に追加したパーツがここに表示されます</text>`}
-  ${warning}
+  ${partsSvg || emptySvg}
+  ${warningsSvg}
 </svg>`,
     placements,
     overflow,
     page,
+    pageCount,
+    docHeight,
   };
 }
 
@@ -408,7 +459,7 @@ function renderPartList(placements) {
   placements.forEach((part, index) => {
     const item = document.createElement('li');
     item.innerHTML = `<div class="part-row">
-      <div><strong>${index + 1}. ${escapeXml(part.name)}</strong><div class="part-meta">${Math.round(part.width)}mm × ${Math.round(part.height)}mm<br>配置: X ${part.x.toFixed(1)}mm / Y ${part.y.toFixed(1)}mm</div></div>
+      <div><strong>${index + 1}. ${escapeXml(part.name)}</strong><div class="part-meta">${Math.round(part.width)}mm × ${Math.round(part.height)}mm<br>${part.pageIndex + 1}ページ目 / 配置: X ${part.x.toFixed(1)}mm / Y ${part.y.toFixed(1)}mm</div></div>
       <button class="mini-button" type="button" data-remove="${part.id}">削除</button>
     </div>${part.overflow ? '<div class="part-warning">A4範囲外です。サイズか個数を調整してください。</div>' : ''}`;
     partList.appendChild(item);
@@ -465,12 +516,12 @@ function render() {
   preview.innerHTML = previewMode === 'sheet' ? sheetSvg : currentSvg;
   shapeSummary.textContent = `${Math.round(size.width)}mm × ${Math.round(size.height)}mm`;
   holeSummary.textContent = `${holes.length}個`;
-  const saveLabel = previewMode === 'sheet' ? 'A4まとめSVG' : '単体SVG';
-  sheetSummary.textContent = `${sheetParts.length}個${sheet.overflow ? ' / 範囲外あり' : ''}`;
+  const saveLabel = previewMode === 'sheet' ? 'A4ページSVG' : '単体SVG';
+  sheetSummary.textContent = `${sheetParts.length}個 / ${sheet.pageCount}ページ${sheet.overflow ? ' / 範囲外あり' : ''}`;
   saveSummary.textContent = saveLabel;
   previewTitle.textContent = saveLabel;
   previewDetail.textContent = previewMode === 'sheet'
-    ? `${sheet.page.width}mm × ${sheet.page.height}mm / ${sheetParts.length}パーツ / 表示中のA4がそのまま保存されます`
+    ? `${sheet.page.width}mm × ${sheet.page.height}mm / ${sheet.pageCount}ページ / ${sheetParts.length}パーツ / 表示中のページSVGが保存されます`
     : `${Math.round(size.width)}mm × ${Math.round(size.height)}mm / 表示中の単体パーツが保存されます`;
   downloadSvg.textContent = `${saveLabel}を保存`;
   renderPartList(sheet.placements);
