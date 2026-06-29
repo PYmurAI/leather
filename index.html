@@ -49,7 +49,7 @@
         </div>
 
         <div class="sheet-settings">
-          <h2>A4まとめ</h2>
+          <h2>A4ページ</h2>
           <div class="grid-fields">
             <label>A4向き<select id="sheetOrientation"><option value="portrait">縦 210×297mm</option><option value="landscape" selected>横 297×210mm</option></select></label>
             <label>追加個数<input id="partQuantity" type="number" min="1" max="99" step="1" value="1" /></label>
@@ -71,18 +71,25 @@
         <dl class="summary">
           <div><dt>外形</dt><dd id="shapeSummary">-</dd></div>
           <div><dt>穴数</dt><dd id="holeSummary">-</dd></div>
-          <div><dt>A4配置</dt><dd id="sheetSummary">0個</dd></div>
+          <div><dt>A4配置</dt><dd id="sheetSummary">0個 / 1ページ</dd></div>
           <div><dt>保存対象</dt><dd id="saveSummary">単体SVG</dd></div>
+          <div><dt>作業保存</dt><dd id="draftSummary">未保存</dd></div>
         </dl>
 
+        <div class="draft-actions">
+          <button id="saveDraft" class="secondary-button" type="button">作業を保存</button>
+          <button id="loadDraft" class="secondary-button" type="button">保存を復元</button>
+          <button id="clearDraft" class="secondary-button danger-button" type="button">保存を削除</button>
+        </div>
+
         <div class="sheet-actions">
-          <button id="addPart" class="primary-button" type="button">A4に追加</button>
-          <button id="clearSheet" class="secondary-button" type="button">A4をクリア</button>
+          <button id="addPart" class="primary-button" type="button">A4ページに追加</button>
+          <button id="clearSheet" class="secondary-button" type="button">A4ページをクリア</button>
         </div>
 
         <div class="preview-mode" role="group" aria-label="プレビュー切替">
           <button id="singleMode" class="mode-button active" type="button">単体</button>
-          <button id="sheetMode" class="mode-button" type="button">A4まとめ</button>
+          <button id="sheetMode" class="mode-button" type="button">A4ページ</button>
         </div>
 
         <div class="parts-panel">
