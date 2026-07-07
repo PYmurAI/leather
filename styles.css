@@ -126,7 +126,7 @@ input, select {
   font-size: 12px;
 }
 
-.guide-settings, .sheet-settings, .parts-panel {
+.guide-settings, .reference-sizes, .sheet-settings, .parts-panel {
   display: grid;
   gap: 12px;
   padding-top: 14px;
@@ -157,6 +157,34 @@ input, select {
 .danger-button {
   border-color: #d9a39f;
   color: var(--danger);
+}
+
+.reference-sizes dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.reference-sizes div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.reference-sizes dt {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.reference-sizes dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: right;
 }
 
 .summary {
