@@ -20,6 +20,9 @@ const addPartButton = document.getElementById('addPart');
 const clearSheetButton = document.getElementById('clearSheet');
 const saveDraftButton = document.getElementById('saveDraft');
 const loadDraftButton = document.getElementById('loadDraft');
+const exportDraftButton = document.getElementById('exportDraft');
+const importDraftButton = document.getElementById('importDraft');
+const importDraftFile = document.getElementById('importDraftFile');
 const clearDraftButton = document.getElementById('clearDraft');
 const singleModeButton = document.getElementById('singleMode');
 const sheetModeButton = document.getElementById('sheetMode');
@@ -107,6 +110,18 @@ function draftPayload() {
   };
 }
 
+function validDraft(draft) {
+  return Boolean(
+    draft
+    && draft.version === 1
+    && draft.controls
+    && typeof draft.controls === 'object'
+    && !Array.isArray(draft.controls)
+    && Array.isArray(draft.sheetParts)
+    && draft.sheetParts.every((part) => part && typeof part === 'object' && part.settings && typeof part.settings === 'object')
+  );
+}
+
 function formatSavedAt(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -124,7 +139,7 @@ function readDraft() {
     const raw = localStorage.getItem(DRAFT_KEY);
     if (!raw) return null;
     const draft = JSON.parse(raw);
-    if (!draft || draft.version !== 1 || typeof draft.controls !== 'object' || !Array.isArray(draft.sheetParts)) return null;
+    if (!validDraft(draft)) return null;
     return draft;
   } catch {
     return null;
@@ -175,6 +190,40 @@ function restoreDraft(showMessage = true) {
 function clearDraftStorage() {
   localStorage.removeItem(DRAFT_KEY);
   draftMessage = '保存を削除しました';
+  updateDraftSummary();
+}
+
+function draftFileName() {
+  const date = new Date();
+  const pad = (number) => String(number).padStart(2, '0');
+  const timestamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`;
+  return `leather-pattern-work-${timestamp}.json`;
+}
+
+function exportDraft() {
+  const json = JSON.stringify(draftPayload(), null, 2);
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = draftFileName();
+  anchor.click();
+  URL.revokeObjectURL(url);
+  draftMessage = 'JSONを書き出しました';
+  updateDraftSummary();
+}
+
+async function importDraft(file) {
+  try {
+    const draft = JSON.parse(await file.text());
+    if (!validDraft(draft)) throw new Error('Unsupported draft data');
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    restoreDraft(false);
+    draftMessage = 'JSONから復元しました';
+  } catch {
+    draftMessage = 'JSONを読み込めませんでした';
+  }
+  importDraftFile.value = '';
   updateDraftSummary();
 }
 
@@ -668,6 +717,12 @@ addPartButton.addEventListener('click', addCurrentPart);
 clearSheetButton.addEventListener('click', clearSheet);
 saveDraftButton.addEventListener('click', () => saveDraft('保存しました'));
 loadDraftButton.addEventListener('click', () => restoreDraft(true));
+exportDraftButton.addEventListener('click', exportDraft);
+importDraftButton.addEventListener('click', () => importDraftFile.click());
+importDraftFile.addEventListener('change', () => {
+  const [file] = importDraftFile.files;
+  if (file) importDraft(file);
+});
 clearDraftButton.addEventListener('click', clearDraftStorage);
 singleModeButton.addEventListener('click', () => setPreviewMode('single'));
 sheetModeButton.addEventListener('click', () => setPreviewMode('sheet'));
