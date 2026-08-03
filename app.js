@@ -26,11 +26,22 @@ const importDraftFile = document.getElementById('importDraftFile');
 const clearDraftButton = document.getElementById('clearDraft');
 const singleModeButton = document.getElementById('singleMode');
 const sheetModeButton = document.getElementById('sheetMode');
+const assemblyModeButton = document.getElementById('assemblyMode');
+const rawThicknessSummary = document.getElementById('rawThicknessSummary');
+const compressedThicknessSummary = document.getElementById('compressedThicknessSummary');
+const designThicknessSummary = document.getElementById('designThicknessSummary');
+const stepPart = document.getElementById('stepPart');
+const stepAction = document.getElementById('stepAction');
+const stepNote = document.getElementById('stepNote');
+const addStepButton = document.getElementById('addStep');
+const assemblyStepList = document.getElementById('assemblyStepList');
 
 let currentSvg = '';
 let sheetSvg = '';
+let assemblySvg = '';
 let previewMode = 'single';
 let sheetParts = [];
+let assemblySteps = [];
 let isRestoringDraft = false;
 let draftMessage = '';
 
@@ -107,6 +118,7 @@ function draftPayload() {
     controls: readControlValues(),
     previewMode,
     sheetParts,
+    assemblySteps,
   };
 }
 
@@ -172,14 +184,18 @@ function restoreDraft(showMessage = true) {
 
   isRestoringDraft = true;
   applyControlValues(draft.controls);
-  previewMode = draft.previewMode === 'sheet' ? 'sheet' : 'single';
+  previewMode = ['single', 'sheet', 'assembly'].includes(draft.previewMode) ? draft.previewMode : 'single';
   sheetParts = draft.sheetParts
     .filter((part) => part && part.settings)
     .map((part) => ({
       ...part,
       id: part.id || createId(),
       settings: clone(part.settings),
+      assembly: normalizeAssembly(part.assembly),
     }));
+  assemblySteps = Array.isArray(draft.assemblySteps)
+    ? draft.assemblySteps.filter((step) => step && typeof step === 'object').map((step) => ({ ...step, id: step.id || createId() }))
+    : [];
   draftMessage = showMessage ? '復元しました' : '';
   setPreviewMode(previewMode, false);
   isRestoringDraft = false;
@@ -233,6 +249,148 @@ function partName(settings) {
   if (settings.type === 'tShape') return 'T字パーツ';
   if (settings.gussetType === 'fan') return '扇形マチ';
   return '直線マチ';
+}
+
+function normalizeAssembly(data = {}) {
+  const thickness = clamp(Number(data.thickness) || 1.5, 0.1, 20);
+  const compressionRate = clamp(Number(data.compressionRate) || 0.85, 0.1, 1);
+  const fold = data.fold && typeof data.fold === 'object' ? data.fold : {};
+  return {
+    thickness,
+    materialType: data.materialType || 'vegetable',
+    layerType: data.layerType || 'outer',
+    face: data.face === 'back' ? 'back' : 'front',
+    compressionRate,
+    color: /^#[0-9a-f]{6}$/i.test(data.color || '') ? data.color : '#c47b45',
+    sewEdge: ['none', 'top', 'right', 'bottom', 'left', 'all'].includes(data.sewEdge) ? data.sewEdge : 'none',
+    fold: {
+      enabled: Boolean(fold.enabled),
+      position: clamp(Number(fold.position) || 50, 0, 100),
+      angle: clamp(Number(fold.angle) || 180, 0, 360),
+      insideRadius: clamp(Number(fold.insideRadius) || 0, 0, 100),
+      direction: fold.direction === 'valley' ? 'valley' : 'mountain',
+    },
+  };
+}
+
+function readAssemblySettings() {
+  return normalizeAssembly({
+    thickness: value('partThickness'),
+    materialType: selectValue('materialType'),
+    layerType: selectValue('layerType'),
+    face: selectValue('partFace'),
+    compressionRate: value('compressionRate'),
+    color: selectValue('partColor'),
+    sewEdge: selectValue('sewEdge'),
+    fold: {
+      enabled: checked('foldEnabled'),
+      position: value('foldPosition'),
+      angle: value('foldAngle'),
+      insideRadius: value('foldRadius'),
+      direction: selectValue('foldDirection'),
+    },
+  });
+}
+
+function foldAllowance(part) {
+  const { fold, thickness } = part.assembly;
+  if (!fold.enabled) return 0;
+  const neutralAxisRatio = clamp(value('neutralAxisRatio'), 0, 1);
+  return fold.angle * Math.PI / 180 * (fold.insideRadius + thickness * neutralAxisRatio);
+}
+
+function sectionLayers() {
+  if (!sheetParts.length) return [];
+  const maxHeight = Math.max(...sheetParts.map((part) => dimensions(part.settings).height));
+  const sectionY = maxHeight * clamp(value('sectionPosition'), 0, 100) / 100;
+  return sheetParts.filter((part) => {
+    const height = dimensions(part.settings).height;
+    const top = (maxHeight - height) / 2;
+    return sectionY >= top && sectionY <= top + height;
+  });
+}
+
+function thicknessTotals(layers = sectionLayers()) {
+  const raw = layers.reduce((total, part) => total + part.assembly.thickness, 0);
+  const compressed = layers.reduce((total, part) => total + part.assembly.thickness * part.assembly.compressionRate, 0);
+  return { raw, compressed, design: compressed + Math.max(value('safetyMargin'), 0) };
+}
+
+function sewEdgeSvg(part, x, y, width, height) {
+  const edge = part.assembly.sewEdge;
+  if (edge === 'none') return '';
+  const lines = {
+    top: [x, y, x + width, y], right: [x + width, y, x + width, y + height],
+    bottom: [x, y + height, x + width, y + height], left: [x, y, x, y + height],
+  };
+  const keys = edge === 'all' ? Object.keys(lines) : [edge];
+  return keys.map((key) => {
+    const line = lines[key];
+    return `<line x1="${line[0]}" y1="${line[1]}" x2="${line[2]}" y2="${line[3]}" stroke="#b7352d" stroke-width="1.2"/>`;
+  }).join('');
+}
+
+function buildAssemblySvg() {
+  const canvasWidth = Math.max(320, ...sheetParts.map((part) => dimensions(part.settings).width + 210));
+  const explodedRows = sheetParts.map((part) => dimensions(part.settings).height + 20);
+  const explodedHeight = Math.max(90, explodedRows.reduce((sum, height) => sum + height, 20));
+  const layers = sectionLayers();
+  const totals = thicknessTotals(layers);
+  const sectionHeight = Math.max(100, layers.length * 18 + 70);
+  const stepsHeight = Math.max(55, assemblySteps.length * 12 + 38);
+  const maxPartHeight = sheetParts.length ? Math.max(...sheetParts.map((part) => dimensions(part.settings).height)) : 0;
+  const absoluteSectionY = maxPartHeight * clamp(value('sectionPosition'), 0, 100) / 100;
+  let rowY = 20;
+  const exploded = sheetParts.map((part, index) => {
+    const size = dimensions(part.settings);
+    const x = 25 + index * 10;
+    const y = rowY;
+    rowY += size.height + 20;
+    const localSectionY = absoluteSectionY - (maxPartHeight - size.height) / 2;
+    const sectionLineSvg = localSectionY >= 0 && localSectionY <= size.height
+      ? `<line x1="${x - 4}" y1="${y + localSectionY}" x2="${x + size.width + 4}" y2="${y + localSectionY}" stroke="#b7352d" stroke-width="0.7" stroke-dasharray="3 2"/><text x="${x - 8}" y="${y + localSectionY + 1}" font-size="4" fill="#b7352d">A</text><text x="${x + size.width + 6}" y="${y + localSectionY + 1}" font-size="4" fill="#b7352d">A′</text>`
+      : '';
+    const foldY = y + size.height * part.assembly.fold.position / 100;
+    const foldSvg = part.assembly.fold.enabled
+      ? `<line x1="${x}" y1="${foldY}" x2="${x + size.width}" y2="${foldY}" stroke="#315c8a" stroke-width="0.7" stroke-dasharray="4 2"/><text x="${x + size.width + 4}" y="${foldY + 1}" font-size="3.5" fill="#315c8a">${part.assembly.fold.direction === 'mountain' ? '山' : '谷'}折り ${part.assembly.fold.angle}° / 必要長 ${foldAllowance(part).toFixed(1)}mm</text>`
+      : '';
+    const arrow = index < sheetParts.length - 1
+      ? `<line x1="12" y1="${y + size.height + 2}" x2="12" y2="${y + size.height + 15}" stroke="#8a4f2a" stroke-width="0.7"/><path d="M 9 ${y + size.height + 12} L 12 ${y + size.height + 16} L 15 ${y + size.height + 12}" fill="none" stroke="#8a4f2a" stroke-width="0.7"/>`
+      : '';
+    return `<g>
+      <path d="${shapePath(part.settings)}" transform="translate(${x} ${y})" fill="${part.assembly.color}" fill-opacity="0.35" stroke="#2b2118" stroke-width="0.5"/>
+      ${sewEdgeSvg(part, x, y, size.width, size.height)}${foldSvg}${sectionLineSvg}${arrow}
+      <text x="${x}" y="${y - 5}" font-size="4" fill="#2b2118">${index + 1}. ${escapeXml(part.name)} / ${part.assembly.thickness.toFixed(1)}mm / ${part.assembly.face === 'front' ? '表' : '裏'}</text>
+    </g>`;
+  }).join('\n');
+  const sectionY = explodedHeight + 32;
+  const sectionBars = layers.map((part, index) => {
+    const y = sectionY + index * 18;
+    return `<rect x="24" y="${y}" width="130" height="14" rx="2" fill="${part.assembly.color}" fill-opacity="0.55" stroke="#2b2118" stroke-width="0.35"/>
+      <text x="28" y="${y + 9}" font-size="4" fill="#2b2118">${index + 1}. ${escapeXml(part.name)}</text>
+      <text x="160" y="${y + 9}" font-size="4" fill="#2b2118">${part.assembly.thickness.toFixed(1)}mm → ${(part.assembly.thickness * part.assembly.compressionRate).toFixed(1)}mm</text>`;
+  }).join('\n');
+  const empty = layers.length ? '' : `<text x="24" y="${sectionY + 12}" font-size="4" fill="#74675a">断面線と交差するパーツはありません</text>`;
+  const summaryY = sectionY + Math.max(layers.length, 1) * 18 + 10;
+  const stepsY = explodedHeight + sectionHeight;
+  const stepsSvg = assemblySteps.map((step, index) => {
+    const part = sheetParts.find((item) => item.id === step.partId);
+    return `<text x="24" y="${stepsY + 30 + index * 12}" font-size="4" fill="#2b2118">${index + 1}. ${escapeXml(part?.name || '削除済みパーツ')}を${actionLabel(step.action)}${step.note ? ` — ${escapeXml(step.note)}` : ''}</text>`;
+  }).join('');
+  const totalHeight = explodedHeight + sectionHeight + stepsHeight;
+  return `<svg xmlns="${NS}" width="${canvasWidth}mm" height="${totalHeight}mm" viewBox="0 0 ${canvasWidth} ${totalHeight}">
+    <rect width="100%" height="100%" fill="#fffdf8"/>
+    <text x="12" y="10" font-size="5" font-weight="bold" fill="#2b2118">2D分解図（上から積層順）</text>
+    ${exploded || '<text x="24" y="45" font-size="4" fill="#74675a">A4ページにパーツを追加してください</text>'}
+    <line x1="12" y1="${explodedHeight + 10}" x2="${canvasWidth - 12}" y2="${explodedHeight + 10}" stroke="#d8c9b6"/>
+    <text x="12" y="${explodedHeight + 24}" font-size="5" font-weight="bold" fill="#2b2118">断面 A—A′（高さ ${clamp(value('sectionPosition'), 0, 100)}%）</text>
+    ${sectionBars}${empty}
+    <text x="24" y="${summaryY}" font-size="4" fill="#2b2118">素材厚 ${totals.raw.toFixed(1)}mm / 圧縮後 ${totals.compressed.toFixed(1)}mm / 安全側 ${totals.design.toFixed(1)}mm</text>
+    <text x="24" y="${summaryY + 8}" font-size="3.5" fill="#74675a">※ 計算値は素材や加工方法で変化する参考値です</text>
+    <line x1="12" y1="${stepsY + 10}" x2="${canvasWidth - 12}" y2="${stepsY + 10}" stroke="#d8c9b6"/>
+    <text x="12" y="${stepsY + 23}" font-size="5" font-weight="bold" fill="#2b2118">組み立て工程</text>
+    ${stepsSvg || `<text x="24" y="${stepsY + 38}" font-size="4" fill="#74675a">工程はまだ登録されていません</text>`}
+  </svg>`;
 }
 
 function sheetSize() {
@@ -615,11 +773,81 @@ function renderPartList(placements) {
   placements.forEach((part, index) => {
     const item = document.createElement('li');
     item.innerHTML = `<div class="part-row">
-      <div><strong>${index + 1}. ${escapeXml(part.name)}</strong><div class="part-meta">${Math.round(part.width)}mm × ${Math.round(part.height)}mm<br>${part.pageIndex + 1}ページ目 / 配置: X ${part.x.toFixed(1)}mm / Y ${part.y.toFixed(1)}mm</div></div>
+      <div><strong>${index + 1}. ${escapeXml(part.name)}</strong><div class="part-meta">${Math.round(part.width)}mm × ${Math.round(part.height)}mm / ${part.assembly.thickness.toFixed(1)}mm厚<br>${part.pageIndex + 1}ページ目 / 配置: X ${part.x.toFixed(1)}mm / Y ${part.y.toFixed(1)}mm</div></div>
+    </div>
+    <div class="part-controls">
+      <label>名前<input type="text" value="${escapeXml(part.name)}" data-part="${part.id}" data-field="name" /></label>
+      <label>革厚(mm)<input type="number" min="0.1" max="20" step="0.1" value="${part.assembly.thickness}" data-part="${part.id}" data-field="thickness" /></label>
+      <label>圧縮率<input type="number" min="0.1" max="1" step="0.05" value="${part.assembly.compressionRate}" data-part="${part.id}" data-field="compressionRate" /></label>
+      <label>折り<select data-part="${part.id}" data-field="foldEnabled"><option value="false"${part.assembly.fold.enabled ? '' : ' selected'}>なし</option><option value="true"${part.assembly.fold.enabled ? ' selected' : ''}>あり</option></select></label>
+      <label>角度(°)<input type="number" min="0" max="360" step="1" value="${part.assembly.fold.angle}" data-part="${part.id}" data-field="foldAngle" /></label>
+      <label>内R(mm)<input type="number" min="0" max="100" step="0.1" value="${part.assembly.fold.insideRadius}" data-part="${part.id}" data-field="foldRadius" /></label>
+    </div>
+    <div class="part-meta">${part.assembly.fold.enabled ? `折り必要長: ${foldAllowance(part).toFixed(1)}mm（推奨 ${ (foldAllowance(part) * 1.1).toFixed(1)}mm）` : '折り線なし'} / 縫製辺: ${sewEdgeLabel(part.assembly.sewEdge)}</div>
+    <div class="part-buttons">
+      <button class="mini-button" type="button" data-move-up="${part.id}"${index === 0 ? ' disabled' : ''}>上へ</button>
+      <button class="mini-button" type="button" data-move-down="${part.id}"${index === placements.length - 1 ? ' disabled' : ''}>下へ</button>
       <button class="mini-button" type="button" data-remove="${part.id}">削除</button>
     </div>${part.overflow ? '<div class="part-warning">A4範囲外です。サイズか個数を調整してください。</div>' : ''}`;
     partList.appendChild(item);
   });
+}
+
+function sewEdgeLabel(edge) {
+  return ({ none: 'なし', top: '上辺', right: '右辺', bottom: '下辺', left: '左辺', all: '外周' })[edge] || 'なし';
+}
+
+function renderStepOptions() {
+  const selected = stepPart.value;
+  stepPart.innerHTML = sheetParts.length
+    ? sheetParts.map((part) => `<option value="${part.id}">${escapeXml(part.name)}</option>`).join('')
+    : '<option value="">パーツなし</option>';
+  if (sheetParts.some((part) => part.id === selected)) stepPart.value = selected;
+  addStepButton.disabled = !sheetParts.length;
+}
+
+function actionLabel(action) {
+  return ({ glue: '接着', fold: '折る', sew: '縫製', overlap: '重ねる', insert: '差し込む' })[action] || action;
+}
+
+function renderAssemblySteps() {
+  assemblyStepList.innerHTML = '';
+  assemblySteps.forEach((step, index) => {
+    const part = sheetParts.find((item) => item.id === step.partId);
+    const item = document.createElement('li');
+    item.innerHTML = `<div class="step-row"><span><strong>${index + 1}. ${actionLabel(step.action)}</strong> — ${escapeXml(part?.name || '削除済みパーツ')}${step.note ? `<br><span class="part-meta">${escapeXml(step.note)}</span>` : ''}</span><button class="mini-button" type="button" data-remove-step="${step.id}">削除</button></div>`;
+    assemblyStepList.appendChild(item);
+  });
+}
+
+function updatePartAssembly(id, field, inputValue) {
+  const part = sheetParts.find((item) => item.id === id);
+  if (!part) return;
+  if (field === 'name') part.name = String(inputValue).trim() || partName(part.settings);
+  if (field === 'thickness') part.assembly.thickness = clamp(Number(inputValue) || 0.1, 0.1, 20);
+  if (field === 'compressionRate') part.assembly.compressionRate = clamp(Number(inputValue) || 0.1, 0.1, 1);
+  if (field === 'foldEnabled') part.assembly.fold.enabled = inputValue === 'true';
+  if (field === 'foldAngle') part.assembly.fold.angle = clamp(Number(inputValue) || 0, 0, 360);
+  if (field === 'foldRadius') part.assembly.fold.insideRadius = clamp(Number(inputValue) || 0, 0, 100);
+  markDraftDirty();
+  render();
+}
+
+function movePart(id, offset) {
+  const index = sheetParts.findIndex((part) => part.id === id);
+  const nextIndex = index + offset;
+  if (index < 0 || nextIndex < 0 || nextIndex >= sheetParts.length) return;
+  [sheetParts[index], sheetParts[nextIndex]] = [sheetParts[nextIndex], sheetParts[index]];
+  markDraftDirty();
+  render();
+}
+
+function addAssemblyStep() {
+  if (!stepPart.value) return;
+  assemblySteps.push({ id: createId(), partId: stepPart.value, action: stepAction.value, note: stepNote.value.trim() });
+  stepNote.value = '';
+  markDraftDirty();
+  render();
 }
 
 function markDraftDirty() {
@@ -631,6 +859,7 @@ function setPreviewMode(mode, markDirty = true) {
   previewMode = mode;
   singleModeButton.classList.toggle('active', mode === 'single');
   sheetModeButton.classList.toggle('active', mode === 'sheet');
+  assemblyModeButton.classList.toggle('active', mode === 'assembly');
   render();
 }
 
@@ -638,13 +867,16 @@ function addCurrentPart() {
   markDraftDirty();
   const quantity = addQuantity();
   const settings = clone(readSettings());
+  const assembly = readAssemblySettings();
   const size = dimensions(settings);
-  const name = partName(settings);
+  const customName = document.getElementById('partName').value.trim();
+  const name = customName || partName(settings);
   for (let index = 0; index < quantity; index += 1) {
     sheetParts.push({
       id: createId(),
       name: quantity > 1 ? `${name} 複製${index + 1}/${quantity}` : name,
       settings: clone(settings),
+      assembly: clone(assembly),
       width: size.width,
       height: size.height,
     });
@@ -655,12 +887,14 @@ function addCurrentPart() {
 function removePart(id) {
   markDraftDirty();
   sheetParts = sheetParts.filter((part) => part.id !== id);
+  assemblySteps = assemblySteps.filter((step) => step.partId !== id);
   render();
 }
 
 function clearSheet() {
   markDraftDirty();
   sheetParts = [];
+  assemblySteps = [];
   render();
 }
 
@@ -674,27 +908,37 @@ function render() {
   const size = dimensions(settings);
   const holes = settings.showHoles ? sampleHoles(settings) : [];
   const sheet = buildSheetSvg();
+  const assembly = buildAssemblySvg();
+  const totals = thicknessTotals();
   currentSvg = buildSingleSvg(settings);
   sheetSvg = sheet.svg;
+  assemblySvg = assembly;
 
-  preview.innerHTML = previewMode === 'sheet' ? sheetSvg : currentSvg;
+  preview.innerHTML = previewMode === 'sheet' ? sheetSvg : previewMode === 'assembly' ? assemblySvg : currentSvg;
   shapeSummary.textContent = `${Math.round(size.width)}mm × ${Math.round(size.height)}mm`;
   holeSummary.textContent = `${holes.length}個`;
-  const saveLabel = previewMode === 'sheet' ? 'A4ページSVG' : '単体SVG';
+  const saveLabel = previewMode === 'sheet' ? 'A4ページSVG' : previewMode === 'assembly' ? '組み立て図SVG' : '単体SVG';
   sheetSummary.textContent = `${sheetParts.length}個 / ${sheet.pageCount}ページ${sheet.overflow ? ' / 範囲外あり' : ''}`;
   saveSummary.textContent = saveLabel;
   previewTitle.textContent = saveLabel;
   previewDetail.textContent = previewMode === 'sheet'
     ? `${sheet.page.width}mm × ${sheet.page.height}mm / ${sheet.pageCount}ページ / ${sheetParts.length}パーツ / 表示中のページSVGが保存されます`
-    : `${Math.round(size.width)}mm × ${Math.round(size.height)}mm / 表示中の単体パーツが保存されます`;
+    : previewMode === 'assembly'
+      ? `${sheetParts.length}層 / 2D分解図と選択断面が保存されます`
+      : `${Math.round(size.width)}mm × ${Math.round(size.height)}mm / 表示中の単体パーツが保存されます`;
   downloadSvg.textContent = `${saveLabel}を保存`;
+  rawThicknessSummary.textContent = `${totals.raw.toFixed(1)}mm`;
+  compressedThicknessSummary.textContent = `${totals.compressed.toFixed(1)}mm`;
+  designThicknessSummary.textContent = `${totals.design.toFixed(1)}mm`;
   renderPartList(sheet.placements);
+  renderStepOptions();
+  renderAssemblySteps();
   updateDraftSummary();
 }
 
 function saveSvg() {
-  const svg = previewMode === 'sheet' ? sheetSvg : currentSvg;
-  const suffix = previewMode === 'sheet' ? 'a4-sheet' : 'single-part';
+  const svg = previewMode === 'sheet' ? sheetSvg : previewMode === 'assembly' ? assemblySvg : currentSvg;
+  const suffix = previewMode === 'sheet' ? 'a4-sheet' : previewMode === 'assembly' ? 'assembly' : 'single-part';
   const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -726,8 +970,25 @@ importDraftFile.addEventListener('change', () => {
 clearDraftButton.addEventListener('click', clearDraftStorage);
 singleModeButton.addEventListener('click', () => setPreviewMode('single'));
 sheetModeButton.addEventListener('click', () => setPreviewMode('sheet'));
+assemblyModeButton.addEventListener('click', () => setPreviewMode('assembly'));
+addStepButton.addEventListener('click', addAssemblyStep);
 partList.addEventListener('click', (event) => {
   const button = event.target.closest('[data-remove]');
   if (button) removePart(button.dataset.remove);
+  const moveUp = event.target.closest('[data-move-up]');
+  if (moveUp) movePart(moveUp.dataset.moveUp, -1);
+  const moveDown = event.target.closest('[data-move-down]');
+  if (moveDown) movePart(moveDown.dataset.moveDown, 1);
+});
+partList.addEventListener('change', (event) => {
+  const input = event.target.closest('[data-part][data-field]');
+  if (input) updatePartAssembly(input.dataset.part, input.dataset.field, input.value);
+});
+assemblyStepList.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-remove-step]');
+  if (!button) return;
+  assemblySteps = assemblySteps.filter((step) => step.id !== button.dataset.removeStep);
+  markDraftDirty();
+  render();
 });
 if (!restoreDraft(false)) render();

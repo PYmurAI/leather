@@ -76,6 +76,29 @@
           </div>
         </div>
 
+        <div class="assembly-settings">
+          <h2>革・組み立て設定</h2>
+          <div class="grid-fields">
+            <label>パーツ名<input id="partName" type="text" placeholder="未入力時は形状名" /></label>
+            <label>革厚(mm)<input id="partThickness" type="number" min="0.1" max="20" step="0.1" value="1.5" /></label>
+            <label>素材<select id="materialType"><option value="vegetable">ヌメ革</option><option value="chrome">クロム革</option><option value="lining">裏地</option><option value="core">芯材</option><option value="other">その他</option></select></label>
+            <label>区分<select id="layerType"><option value="outer">表革</option><option value="lining">裏地</option><option value="core">芯材</option></select></label>
+            <label>表裏<select id="partFace"><option value="front">表</option><option value="back">裏</option></select></label>
+            <label>圧縮率<input id="compressionRate" type="number" min="0.1" max="1" step="0.05" value="0.85" /></label>
+            <label>表示色<input id="partColor" type="color" value="#c47b45" /></label>
+            <label>縫製辺<select id="sewEdge"><option value="none">なし</option><option value="top">上辺</option><option value="right">右辺</option><option value="bottom">下辺</option><option value="left">左辺</option><option value="all">外周</option></select></label>
+          </div>
+          <div class="toggle-row">
+            <label><input id="foldEnabled" type="checkbox" /> 折り線を追加</label>
+          </div>
+          <div class="grid-fields">
+            <label>折り位置(%)<input id="foldPosition" type="number" min="0" max="100" step="1" value="50" /></label>
+            <label>折り角度(°)<input id="foldAngle" type="number" min="0" max="360" step="1" value="180" /></label>
+            <label>内側半径(mm)<input id="foldRadius" type="number" min="0" max="100" step="0.1" value="1" /></label>
+            <label>折り方向<select id="foldDirection"><option value="mountain">山折り</option><option value="valley">谷折り</option></select></label>
+          </div>
+        </div>
+
         <dl class="summary">
           <div><dt>外形</dt><dd id="shapeSummary">-</dd></div>
           <div><dt>穴数</dt><dd id="holeSummary">-</dd></div>
@@ -101,11 +124,38 @@
         <div class="preview-mode" role="group" aria-label="プレビュー切替">
           <button id="singleMode" class="mode-button active" type="button">単体</button>
           <button id="sheetMode" class="mode-button" type="button">A4ページ</button>
+          <button id="assemblyMode" class="mode-button" type="button">組み立て</button>
         </div>
 
         <div class="parts-panel">
-          <h2>配置パーツ</h2>
+          <h2>配置パーツ／積層順（上から順）</h2>
           <ol id="partList" class="part-list"></ol>
+        </div>
+
+        <div class="analysis-panel">
+          <h2>断面・折り計算</h2>
+          <div class="grid-fields">
+            <label>断面線の高さ(%)<input id="sectionPosition" type="range" min="0" max="100" step="1" value="50" /></label>
+            <label>安全余裕(mm)<input id="safetyMargin" type="number" min="0" max="20" step="0.1" value="0.5" /></label>
+            <label>中立軸係数<input id="neutralAxisRatio" type="number" min="0" max="1" step="0.05" value="0.5" /></label>
+          </div>
+          <dl class="summary compact-summary">
+            <div><dt>素材厚み合計</dt><dd id="rawThicknessSummary">0.0mm</dd></div>
+            <div><dt>圧縮後推定厚</dt><dd id="compressedThicknessSummary">0.0mm</dd></div>
+            <div><dt>安全側設計厚</dt><dd id="designThicknessSummary">0.0mm</dd></div>
+          </dl>
+          <p class="reference-note">計算結果は素材差・漉き・接着・縫製方法で変化する参考値です。</p>
+        </div>
+
+        <div class="steps-panel">
+          <h2>組み立て工程</h2>
+          <div class="grid-fields">
+            <label>対象パーツ<select id="stepPart"></select></label>
+            <label>作業<select id="stepAction"><option value="glue">接着</option><option value="fold">折る</option><option value="sew">縫製</option><option value="overlap">重ねる</option><option value="insert">差し込む</option></select></label>
+          </div>
+          <label class="field-group">補足<input id="stepNote" type="text" placeholder="例: 裏地に位置を合わせる" /></label>
+          <button id="addStep" class="secondary-button" type="button">工程を追加</button>
+          <ol id="assemblyStepList" class="step-list"></ol>
         </div>
       </section>
 
