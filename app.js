@@ -16,6 +16,7 @@ const previewTitle = document.getElementById('previewTitle');
 const previewDetail = document.getElementById('previewDetail');
 const partList = document.getElementById('partList');
 const downloadSvg = document.getElementById('downloadSvg');
+const downloadPdf = document.getElementById('downloadPdf');
 const addPartButton = document.getElementById('addPart');
 const clearSheetButton = document.getElementById('clearSheet');
 const saveDraftButton = document.getElementById('saveDraft');
@@ -39,6 +40,10 @@ const assemblyStepList = document.getElementById('assemblyStepList');
 let currentSvg = '';
 let sheetSvg = '';
 let assemblySvg = '';
+let sheetPageSvgs = [];
+let currentPrintSize = null;
+let sheetPrintSize = null;
+let assemblyPrintSize = null;
 let previewMode = 'single';
 let sheetParts = [];
 let assemblySteps = [];
@@ -613,6 +618,12 @@ function dimensions(settings) {
   return { width: settings.width, height: settings.height };
 }
 
+function svgSize(svg) {
+  const width = Number(svg.match(/width="([\d.]+)mm"/)?.[1]);
+  const height = Number(svg.match(/height="([\d.]+)mm"/)?.[1]);
+  return Number.isFinite(width) && Number.isFinite(height) ? { width, height } : null;
+}
+
 function renderPart(settings, offsetX = 0, offsetY = 0, label = '') {
   const pathData = shapePath(settings, 0);
   const seamPath = guidePath(settings, settings.seam);
@@ -752,19 +763,27 @@ function buildSheetSvg() {
     const yOffset = pageOffset(page, pageIndex);
     return `<text x="8" y="${yOffset + page.height - 5}" font-size="4" fill="#b7352d">A4範囲外のパーツがあります</text>`;
   }).join('\n  ');
+  const sheetContent = `${pagesSvg}
+  ${framesSvg}
+  ${partsSvg || emptySvg}
+  ${warningsSvg}`;
+  const pageSvgs = Array.from({ length: pageCount }, (_, pageIndex) => {
+    const yOffset = pageOffset(page, pageIndex);
+    return `<svg xmlns="${NS}" width="${page.width}mm" height="${page.height}mm" viewBox="0 ${yOffset} ${page.width} ${page.height}">
+  ${sheetContent}
+</svg>`;
+  });
 
   return {
     svg: `<svg xmlns="${NS}" width="${page.width}mm" height="${docHeight}mm" viewBox="0 0 ${page.width} ${docHeight}">
-  ${pagesSvg}
-  ${framesSvg}
-  ${partsSvg || emptySvg}
-  ${warningsSvg}
+  ${sheetContent}
 </svg>`,
     placements,
     overflow,
     page,
     pageCount,
     docHeight,
+    pageSvgs,
   };
 }
 
@@ -913,6 +932,16 @@ function render() {
   currentSvg = buildSingleSvg(settings);
   sheetSvg = sheet.svg;
   assemblySvg = assembly;
+  sheetPageSvgs = sheet.pageSvgs;
+  currentPrintSize = {
+    width: size.width + 36,
+    height: size.height + 36,
+  };
+  sheetPrintSize = {
+    width: sheet.page.width,
+    height: sheet.page.height,
+  };
+  assemblyPrintSize = svgSize(assemblySvg);
 
   preview.innerHTML = previewMode === 'sheet' ? sheetSvg : previewMode === 'assembly' ? assemblySvg : currentSvg;
   shapeSummary.textContent = `${Math.round(size.width)}mm × ${Math.round(size.height)}mm`;
@@ -948,6 +977,63 @@ function saveSvg() {
   URL.revokeObjectURL(url);
 }
 
+function printPdf() {
+  const isSheet = previewMode === 'sheet';
+  const isAssembly = previewMode === 'assembly';
+  const pages = isSheet ? sheetPageSvgs : [isAssembly ? assemblySvg : currentSvg];
+  const size = isSheet ? sheetPrintSize : isAssembly ? assemblyPrintSize : currentPrintSize;
+  const title = isSheet ? 'A4ページPDF' : isAssembly ? '組み立て図PDF' : '単体PDF';
+  const suffix = isSheet ? 'a4-sheet' : isAssembly ? 'assembly' : 'single-part';
+  if (!size || !pages.length) return;
+
+  const html = `<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>${escapeXml(title)}</title>
+  <style>
+    @page { size: ${size.width}mm ${size.height}mm; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #fff; }
+    body { width: ${size.width}mm; }
+    .pdf-page {
+      width: ${size.width}mm;
+      height: ${size.height}mm;
+      page-break-after: always;
+      break-after: page;
+      overflow: hidden;
+    }
+    .pdf-page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+    svg {
+      display: block;
+      width: ${size.width}mm;
+      height: ${size.height}mm;
+    }
+  </style>
+</head>
+<body>
+  ${pages.map((svg) => `<section class="pdf-page">${svg}</section>`).join('\n  ')}
+  <script>
+    document.title = 'leather-pattern-${suffix}';
+    addEventListener('load', () => setTimeout(() => print(), 100));
+  </script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const printWindow = window.open(url, '_blank');
+  if (!printWindow) {
+    URL.revokeObjectURL(url);
+    alert('PDF出力用のウィンドウを開けませんでした。ポップアップ許可を確認してください。');
+    return;
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
 function escapeXml(text) {
   return String(text).replace(/[<>&"']/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[char]));
 }
@@ -957,6 +1043,7 @@ controls.forEach((control) => control.addEventListener('input', () => {
   render();
 }));
 downloadSvg.addEventListener('click', saveSvg);
+downloadPdf.addEventListener('click', printPdf);
 addPartButton.addEventListener('click', addCurrentPart);
 clearSheetButton.addEventListener('click', clearSheet);
 saveDraftButton.addEventListener('click', () => saveDraft('保存しました'));
